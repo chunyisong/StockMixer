@@ -12,7 +12,7 @@ np.random.seed(123456789)
 torch.random.manual_seed(12345678)
 device = torch.device("cuda") if torch.cuda.is_available() else 'cpu'
 
-data_path = '../dataset'
+data_path = './dataset'
 market_name = 'NASDAQ'
 relation_name = 'wikidata'
 stock_num = 1026
@@ -28,9 +28,10 @@ alpha = 0.1
 scale_factor = 3
 activation = 'GELU'
 
-dataset_path = '../dataset/' + market_name
+print(f"{device},{activation},{market_name},{relation_name}")
+dataset_path = data_path + '/' + market_name
 if market_name == "SP500":
-    data = np.load('../dataset/SP500/SP500.npy')
+    data = np.load(dataset_path + '/SP500.npy')
     data = data[:, 915:, :]
     price_data = data[:, :, -1]
     mask_data = np.ones((data.shape[0], data.shape[1]))
@@ -61,8 +62,10 @@ model = StockMixer(
 
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 best_valid_loss = np.inf
+best_test_loss = np.inf
 best_valid_perf = None
 best_test_perf = None
+best_epoch_index = -1
 batch_offsets = np.arange(start=0, stop=valid_index, dtype=int)
 
 
@@ -143,7 +146,9 @@ for epoch in range(epochs):
     print('Test: loss:{:.2e}  =  {:.2e} + alpha*{:.2e}'.format(test_loss, test_reg_loss, test_rank_loss))
 
     if val_loss < best_valid_loss:
+        best_epoch_index = epoch
         best_valid_loss = val_loss
+        best_test_loss = test_loss
         best_valid_perf = val_perf
         best_test_perf = test_perf
 
@@ -151,3 +156,10 @@ for epoch in range(epochs):
                                                      val_perf['RIC'], val_perf['prec_10'], val_perf['sharpe5']))
     print('Test performance:\n', 'mse:{:.2e}, IC:{:.2e}, RIC:{:.2e}, prec@10:{:.2e}, SR:{:.2e}'.format(test_perf['mse'], test_perf['IC'],
                                                                             test_perf['RIC'], test_perf['prec_10'], test_perf['sharpe5']), '\n\n')
+
+print('Best Valid performance:\n', 'epoch:{},loss:{:.2e}, mse:{:.2e}, IC:{:.2e}, RIC:{:.2e}, prec@10:{:.2e}, SR:{:.2e}'.format(best_epoch_index,
+    best_valid_loss,best_valid_perf['mse'], best_valid_perf['IC'],best_valid_perf['RIC'], best_valid_perf['prec_10'], best_valid_perf['sharpe5']))
+print('Best Test performance:\n', 'epoch:{},loss:{:.2e}, mse:{:.2e}, IC:{:.2e}, RIC:{:.2e}, prec@10:{:.2e}, SR:{:.2e}'.format(best_epoch_index,
+    best_test_loss,best_test_perf['mse'], best_test_perf['IC'], best_test_perf['RIC'], best_test_perf['prec_10'], best_test_perf['sharpe5']))
+
+                                

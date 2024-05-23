@@ -6,12 +6,67 @@ from load_data import load_EOD_data
 from evaluator import evaluate
 from model import get_loss, StockMixer
 import pickle
+from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 
+def save_best_model(model, loss, folder_path='models', max_keep=10):
+    """
+    保存模型状态字典，并保持最多max_keep个最近的模型文件。
+    文件名包含时间戳和损失值（科学计数法）。
+    :param model: 要保存的模型实例
+    :param loss: 模型对应的损失值
+    :param folder_path: 保存模型的目录路径
+    :param max_keep: 最多保留的模型文件数量
+    """
+    # 创建目录如果不存在
+    os.makedirs(folder_path, exist_ok=True)
+    # 当前时间格式化为YYYYmmddHHMMSS
+    now = datetime.now().strftime('%Y%m%d%H%M%S')
+    # 将浮点数损失值转换为科学记数法字符串，保留7位小数。
+    formatted_loss = f"{Decimal(loss).quantize(Decimal('1e-7'), rounding=ROUND_HALF_UP):e}"
+    filename = f'best_model_{now}_{formatted_loss}.pth'
+    filepath = os.path.join(folder_path, filename)
+    # 保存模型状态字典
+    torch.save(model.state_dict(), filepath)
+    # 获取目录下所有模型文件，并按修改时间排序（最新的在前）
+    files = sorted([f for f in os.listdir(folder_path) if f.startswith('best_model_') and f.endswith('.pth')], reverse=True)
+    # 如果超过最大保留数量，则删除多余的模型文件
+    if len(files) > max_keep:
+        for file_to_remove in files[max_keep:]:
+            os.remove(os.path.join(folder_path, file_to_remove))
+
+    print(f"Model checkpoint saved to {filepath} with loss {loss}.")
+
+def load_latest_model(model, model_dir='models'):
+    """
+    尝试从模型目录加载最新模型到给定的模型实例。
+    :param model: 要加载模型的实例
+    :param model_dir: 模型存放的目录
+    :return: 加载成功返回True，否则返回False
+    """
+
+    # 获取目录下所有模型文件，并按修改时间排序（最新的在前）
+    files = sorted([f for f in os.listdir(model_dir) if f.startswith('best_model_') and f.endswith('.pth')], reverse=True)
+    if len(files):
+        bestFile = files[0]
+        try:
+            paramsDict = torch.load(bestFile)
+            model.load_state_dict(paramsDict)
+            print(f"Loaded latest model checkpoint from file:{bestFile}.")
+            return True
+        except Exception as e:
+            print(f"Failed to load the model checkpoint file:{bestFile},error:{e}")
+            return False
+    else:
+        print("No best model checkpoint file found to load.")
+        return False
 
 np.random.seed(123456789)
 torch.random.manual_seed(12345678)
 device = torch.device("cuda") if torch.cuda.is_available() else 'cpu'
 
+try_load_best_model = False
+best_model_dir = '/content/stock_mixer'
 data_path = './dataset'
 market_name = 'NASDAQ'
 relation_name = 'wikidata'
@@ -60,6 +115,9 @@ model = StockMixer(
     scale=scale_factor
 ).to(device)
 
+if try_load_best_model:
+    load_latest_model(model,best_model_dir)
+
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 best_valid_loss = np.inf
 best_test_loss = np.inf
@@ -67,7 +125,6 @@ best_valid_perf = None
 best_test_perf = None
 best_epoch_index = -1
 batch_offsets = np.arange(start=0, stop=valid_index, dtype=int)
-
 
 def validate(start_index, end_index):
     with torch.no_grad():
@@ -151,6 +208,7 @@ for epoch in range(epochs):
         best_test_loss = test_loss
         best_valid_perf = val_perf
         best_test_perf = test_perf
+        save_best_model(model, best_test_loss, best_model_dir)
 
     print('Valid performance:\n', 'mse:{:.2e}, IC:{:.2e}, RIC:{:.2e}, prec@10:{:.2e}, SR:{:.2e}'.format(val_perf['mse'], val_perf['IC'],
                                                      val_perf['RIC'], val_perf['prec_10'], val_perf['sharpe5']))
@@ -162,4 +220,4 @@ print('Best Valid performance:\n', 'epoch:{},loss:{:.2e}, mse:{:.2e}, IC:{:.2e},
 print('Best Test performance:\n', 'epoch:{},loss:{:.2e}, mse:{:.2e}, IC:{:.2e}, RIC:{:.2e}, prec@10:{:.2e}, SR:{:.2e}'.format(best_epoch_index,
     best_test_loss,best_test_perf['mse'], best_test_perf['IC'], best_test_perf['RIC'], best_test_perf['prec_10'], best_test_perf['sharpe5']))
 
-                                
+
